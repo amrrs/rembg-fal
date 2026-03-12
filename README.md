@@ -14,6 +14,8 @@ It includes:
 
 The page is designed to present an AI imaging product with a premium, modern feel while still letting visitors try background removal directly in the browser.
 
+![CUT.OUT landing page preview](./screenshot.jpeg)
+
 ## Stack
 
 - HTML
@@ -29,6 +31,7 @@ The page is designed to present an AI imaging product with a premium, modern fee
 ├── index.html      # Full landing page app
 ├── input.png       # Before image used in the comparison slider
 ├── output.png      # After image used in the comparison slider
+├── screenshot.jpeg # README preview image
 ├── .env.example    # Example FAL_KEY configuration
 └── README.md
 ```
