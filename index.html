@@ -1,0 +1,2420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CUTOUT — AI Background Removal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── Reset & Base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #07090f;
+      --surface: #0f131b;
+      --surface2: #141927;
+      --border: #20283b;
+      --border-bright: #2f3a56;
+      --text: #f6f8fc;
+      --muted: #96a0b5;
+      --accent: #63e6ff;
+      --accent2: #7c5cff;
+      --pink: #7c5cff;
+      --orange: #8bffb0;
+      --green: #8bffb0;
+      --cyan: #63e6ff;
+      --grad: linear-gradient(135deg, #63e6ff 0%, #7c5cff 56%, #8bffb0 100%);
+      --grad-rev: linear-gradient(135deg, #8bffb0 0%, #7c5cff 44%, #63e6ff 100%);
+      --font-display: 'Sora', sans-serif;
+      --font-body: 'Manrope', sans-serif;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      overflow-x: hidden;
+      line-height: 1.6;
+      background-image:
+        radial-gradient(circle at 18% 0%, rgba(99,230,255,0.12), transparent 26%),
+        radial-gradient(circle at 86% 12%, rgba(124,92,255,0.14), transparent 24%),
+        radial-gradient(circle at 52% 100%, rgba(139,255,176,0.05), transparent 24%),
+        linear-gradient(180deg, #090b12 0%, #07090f 42%, #06070d 100%);
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+    button { cursor: pointer; border: none; background: none; font-family: var(--font-body); }
+    input, textarea { font-family: var(--font-body); }
+
+    /* ─── Scrollbar ─────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--grad); border-radius: 2px; }
+
+    /* ─── Cursor spotlight ──────────────────────────────────────── */
+    #cursor-glow {
+      position: fixed;
+      top: 0; left: 0;
+      width: 460px; height: 460px;
+      border-radius: 50%;
+      background: radial-gradient(circle at center, rgba(99,230,255,0.1) 0%, rgba(124,92,255,0.05) 38%, transparent 72%);
+      pointer-events: none;
+      z-index: 0;
+      transform: translate(-50%, -50%);
+      transition: transform 0.08s linear;
+      mix-blend-mode: screen;
+      opacity: 0.9;
+    }
+
+    /* ─── Gradient text helper ──────────────────────────────────── */
+    .grad-text {
+      background: var(--grad);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .grad-text-rev {
+      background: var(--grad-rev);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ─── Utility ───────────────────────────────────────────────── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(246,248,252,0.88);
+      background: rgba(99,230,255,0.08);
+      border: 1px solid rgba(99,230,255,0.18);
+      border-radius: 100px;
+      padding: 6px 14px;
+    }
+    .tag::before {
+      content: '';
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px rgba(99,230,255,0.8);
+    }
+
+    /* ─── Nav ───────────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.4s, background 0.4s;
+    }
+    nav.scrolled {
+      background: rgba(7,10,15,0.82);
+      border-bottom-color: var(--border);
+    }
+    .nav-logo {
+      font-family: var(--font-display);
+      font-size: 24px;
+      letter-spacing: 0.06em;
+      color: var(--text);
+    }
+    .nav-links { display: flex; gap: 32px; align-items: center; }
+    .nav-links a {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      transition: color 0.2s;
+      position: relative;
+    }
+    .nav-links a::after {
+      content: '';
+      position: absolute;
+      bottom: -4px; left: 0; right: 0;
+      height: 1px;
+      background: var(--grad);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.3s ease;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a:hover::after { transform: scaleX(1); }
+    .nav-cta {
+      font-size: 13px;
+      font-weight: 600;
+      background: linear-gradient(135deg, rgba(99,230,255,0.92), rgba(124,92,255,0.9));
+      color: #071019;
+      padding: 9px 22px;
+      border-radius: 100px;
+      letter-spacing: 0.05em;
+      transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 16px 40px rgba(79,127,255,0.22);
+      -webkit-text-fill-color: #071019;
+    }
+    .nav-cta:hover { opacity: 0.96; transform: translateY(-1px); box-shadow: 0 18px 48px rgba(99,230,255,0.2); }
+
+    /* ─── Hero ──────────────────────────────────────────────────── */
+    #hero {
+      position: relative;
+      min-height: 100vh;
+      overflow: hidden;
+      padding: 140px 32px 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-conic-gradient(
+        rgba(255,255,255,0.03) 0% 25%,
+        transparent 0% 50%
+      );
+      background-size: 32px 32px;
+      mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(0,0,0,0.7) 0%, transparent 100%);
+      -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(0,0,0,0.7) 0%, transparent 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    #hero::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 50% 30%, rgba(99,230,255,0.12), transparent 30%),
+        radial-gradient(circle at 72% 60%, rgba(124,92,255,0.1), transparent 22%),
+        radial-gradient(circle at 28% 70%, rgba(139,255,176,0.06), transparent 20%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Parallax fields */
+    .parallax-bg {
+      position: absolute;
+      inset: -10%;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.85;
+    }
+    .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      mix-blend-mode: screen;
+    }
+    .blob-1 {
+      width: 700px; height: 700px;
+      background: radial-gradient(circle, rgba(99,230,255,0.12) 0%, transparent 68%);
+      top: 0%; left: -10%;
+      animation: blobFloat1 14s ease-in-out infinite;
+    }
+    .blob-2 {
+      width: 520px; height: 520px;
+      background: radial-gradient(circle, rgba(124,92,255,0.14) 0%, transparent 70%);
+      top: 14%; right: -6%;
+      animation: blobFloat2 17s ease-in-out infinite;
+    }
+    .blob-3 {
+      width: 460px; height: 460px;
+      background: radial-gradient(circle, rgba(99,230,255,0.07) 0%, transparent 70%);
+      bottom: 6%; left: 22%;
+      animation: blobFloat3 20s ease-in-out infinite;
+    }
+    .blob-4 {
+      width: 340px; height: 340px;
+      background: radial-gradient(circle, rgba(139,255,176,0.07) 0%, transparent 70%);
+      top: 56%; right: 12%;
+      animation: blobFloat2 22s ease-in-out infinite reverse;
+    }
+    @keyframes blobFloat1 {
+      0%, 100% { transform: translate(0,0) scale(1); }
+      33% { transform: translate(30px, -50px) scale(1.04); }
+      66% { transform: translate(-22px, 30px) scale(0.96); }
+    }
+    @keyframes blobFloat2 {
+      0%, 100% { transform: translate(0,0) scale(1); }
+      50% { transform: translate(-40px, 25px) scale(1.06); }
+    }
+    @keyframes blobFloat3 {
+      0%, 100% { transform: translate(0,0) scale(1); }
+      40% { transform: translate(24px, -34px) scale(1.05); }
+      80% { transform: translate(-16px, 18px) scale(0.95); }
+    }
+
+    .hero-center {
+      position: relative;
+      z-index: 2;
+      max-width: 1100px;
+      margin: 0 auto;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .hero-eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 28px;
+      opacity: 0;
+      transform: translateY(18px);
+    }
+
+    .hero-title {
+      font-family: var(--font-display);
+      font-size: clamp(64px, 10.5vw, 168px);
+      line-height: 0.88;
+      letter-spacing: -0.06em;
+      overflow: visible;
+      margin-bottom: 28px;
+    }
+    .hero-title-line {
+      overflow: hidden;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 0.03em;
+      white-space: nowrap;
+    }
+    .hero-char {
+      display: inline-block;
+      transform: translateY(120%) rotate(10deg) scale(0.7);
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+    .hero-char.space { display: inline-block; width: 0.3em; }
+    .hero-word-plain {
+      color: var(--text);
+      text-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .hero-word-grad {
+      background: var(--grad);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      filter: drop-shadow(0 0 30px rgba(99,230,255,0.3));
+    }
+
+    .hero-subtitle {
+      font-size: clamp(17px, 1.5vw, 21px);
+      font-weight: 400;
+      color: rgba(246,248,252,0.72);
+      max-width: 560px;
+      margin: 0 auto;
+      opacity: 0;
+      transform: translateY(24px);
+      line-height: 1.72;
+      text-align: center;
+    }
+    .checker-swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      vertical-align: -1px;
+      background-image: repeating-conic-gradient(
+        #c0c0c0 0% 25%,
+        #fff 0% 50%
+      );
+      background-size: 7px 7px;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: center;
+      margin-top: 36px;
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, rgba(99,230,255,0.96), rgba(124,92,255,0.94));
+      color: #061018;
+      font-size: 16px;
+      font-weight: 800;
+      padding: 19px 40px;
+      border-radius: 100px;
+      letter-spacing: 0.02em;
+      transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 20px 42px rgba(99,230,255,0.22);
+      -webkit-text-fill-color: #061018;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-primary::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.16), transparent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 22px 48px rgba(99,230,255,0.28); }
+    .btn-primary:hover::before { opacity: 1; }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: rgba(246,248,252,0.74);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 15px 24px;
+      border-radius: 100px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.02);
+      transition: color 0.2s, border-color 0.2s, transform 0.2s, background 0.2s;
+    }
+    .btn-secondary:hover {
+      color: var(--text);
+      border-color: rgba(99,230,255,0.24);
+      background: rgba(99,230,255,0.04);
+    }
+    .hero-proof {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 36px;
+      opacity: 0;
+      transform: translateY(24px);
+      justify-content: center;
+    }
+    .hero-proof-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: rgba(246,248,252,0.55);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+    .hero-proof-item::before {
+      content: '';
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px rgba(99,230,255,0.7);
+    }
+
+    .hero-scroll-hint {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      opacity: 0;
+      animation: fadeInUp 0.8s ease 2.8s forwards;
+    }
+    .scroll-line {
+      width: 1px;
+      height: 50px;
+      background: linear-gradient(to bottom, var(--accent2), transparent);
+      animation: scrollPulse 2.2s ease-in-out infinite;
+    }
+    @keyframes scrollPulse {
+      0%, 100% { opacity: 0.2; transform: scaleY(0.8) translateY(4px); }
+      50% { opacity: 1; transform: scaleY(1.1) translateY(0); }
+    }
+    @keyframes fadeInUp {
+      to { opacity: 1; }
+    }
+
+    /* ─── Before/After Slider ─────────────────────────────────── */
+    .ba-slider-section {
+      position: relative;
+      z-index: 2;
+      max-width: 820px;
+      margin: 80px auto 0;
+      padding: 0 32px;
+      opacity: 0;
+      transform: translateY(48px);
+    }
+    .ba-slider-section.visible {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.9s ease, transform 0.9s ease;
+    }
+    .ba-slider-wrap {
+      position: relative;
+      border-radius: 28px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow:
+        0 32px 80px rgba(0,0,0,0.4),
+        inset 0 1px 0 rgba(255,255,255,0.04);
+      cursor: ew-resize;
+      user-select: none;
+      -webkit-user-select: none;
+      aspect-ratio: auto;
+    }
+    .ba-slider-wrap img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .ba-img-after {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      width: 50%;
+      background: #000;
+    }
+    .ba-img-after img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: var(--ba-full-w, 820px);
+      max-width: none;
+      height: 100%;
+      object-fit: cover;
+    }
+    .ba-slider-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 3px;
+      background: var(--accent);
+      box-shadow: 0 0 18px rgba(99,230,255,0.5);
+      z-index: 3;
+      transform: translateX(-50%);
+    }
+    .ba-slider-knob {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(99,230,255,0.95), rgba(124,92,255,0.9));
+      border: 2px solid rgba(255,255,255,0.2);
+      box-shadow: 0 8px 32px rgba(99,230,255,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(8px);
+    }
+    .ba-slider-knob svg {
+      width: 22px;
+      height: 22px;
+      color: #061018;
+    }
+    .ba-label {
+      position: absolute;
+      bottom: 18px;
+      z-index: 2;
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      backdrop-filter: blur(12px);
+    }
+    .ba-label-before {
+      right: 18px;
+      background: rgba(0,0,0,0.5);
+      color: rgba(246,248,252,0.7);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .ba-label-after {
+      left: 18px;
+      background: rgba(99,230,255,0.12);
+      color: var(--accent);
+      border: 1px solid rgba(99,230,255,0.2);
+    }
+
+    /* ─── Marquee ───────────────────────────────────────────────── */
+    .marquee-section {
+      padding: 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+      position: relative;
+      background: linear-gradient(90deg, var(--bg), rgba(99,102,241,0.04), var(--bg));
+    }
+    .marquee-section::before,
+    .marquee-section::after {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 120px;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .marquee-section::before { left: 0; background: linear-gradient(to right, var(--bg), transparent); }
+    .marquee-section::after { right: 0; background: linear-gradient(to left, var(--bg), transparent); }
+
+    .marquee-track {
+      display: flex;
+      white-space: nowrap;
+      animation: marqueeScroll 25s linear infinite;
+      width: max-content;
+      padding: 18px 0;
+    }
+    .marquee-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 20px;
+      padding: 0 36px;
+      font-family: var(--font-display);
+      font-size: 16px;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .marquee-item:nth-child(3n+1) .marquee-dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .marquee-item:nth-child(3n+2) .marquee-dot { background: var(--pink); box-shadow: 0 0 8px var(--pink); }
+    .marquee-item:nth-child(3n+3) .marquee-dot { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    .marquee-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    @keyframes marqueeScroll {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+
+    /* ─── Parallax Demo Strip ───────────────────────────────────── */
+    #demo-strip {
+      padding: 140px 0 100px;
+      position: relative;
+      overflow: hidden;
+    }
+    /* section background accent */
+    #demo-strip::before {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 900px; height: 400px;
+      background: radial-gradient(ellipse, rgba(99,102,241,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(52px, 7.5vw, 108px);
+      line-height: 0.92;
+      letter-spacing: 0.02em;
+      margin-top: 20px;
+    }
+
+    /* ─── Live Demo Section ─────────────────────────────────────── */
+    #live-demo {
+      padding: 140px 32px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .live-demo-header { margin-bottom: 56px; }
+
+    /* Animated gradient border */
+    .demo-box-wrap {
+      position: relative;
+      border-radius: 22px;
+      padding: 2px;
+      background: linear-gradient(var(--bg), var(--bg)) padding-box,
+                  linear-gradient(135deg, rgba(99,102,241,0.6), rgba(167,139,250,0.3), rgba(244,114,182,0.4), rgba(99,102,241,0.6)) border-box;
+      border: 2px solid transparent;
+    }
+    .demo-box {
+      background: var(--surface);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    /* API key config bar */
+    .api-config-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .api-config-bar label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .api-key-input-wrap {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .api-key-input-wrap:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+    }
+    .api-key-prefix {
+      padding: 0 12px;
+      font-size: 12px;
+      font-family: 'SF Mono','Fira Code',monospace;
+      color: var(--accent2);
+      border-right: 1px solid var(--border);
+      height: 38px;
+      display: flex;
+      align-items: center;
+      background: rgba(167,139,250,0.06);
+      user-select: none;
+    }
+    #apiKeyInput {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 13px;
+      font-family: 'SF Mono','Fira Code',monospace;
+      padding: 0 12px;
+      height: 38px;
+      letter-spacing: 0.05em;
+    }
+    #apiKeyInput::placeholder { color: var(--muted); opacity: 0.4; font-family: var(--font-body); letter-spacing: 0; }
+    .api-key-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .btn-icon {
+      width: 32px; height: 32px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+    .btn-icon:hover { color: var(--text); border-color: var(--border-bright); background: var(--surface2); }
+    .api-status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border-bright);
+      transition: background 0.3s, box-shadow 0.3s;
+      flex-shrink: 0;
+    }
+    .api-status-dot.active { background: var(--green); box-shadow: 0 0 10px var(--green); }
+    .env-hint {
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .env-hint code {
+      background: rgba(167,139,250,0.08);
+      border: 1px solid rgba(167,139,250,0.2);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      color: var(--accent2);
+      font-family: 'SF Mono','Fira Code',monospace;
+    }
+
+    /* Upload area */
+    .upload-area { padding: 40px 32px; }
+    .drop-zone {
+      border: 2px dashed var(--border-bright);
+      border-radius: 18px;
+      padding: 72px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
+      position: relative;
+      background: radial-gradient(ellipse at 50% 100%, rgba(99,102,241,0.04) 0%, transparent 70%);
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent2);
+      background: radial-gradient(ellipse at 50% 100%, rgba(99,102,241,0.1) 0%, transparent 70%);
+      box-shadow: inset 0 -20px 60px rgba(99,102,241,0.08);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .drop-icon-wrap {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(167,139,250,0.1));
+      border: 1px solid rgba(99,102,241,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin: 0 auto 20px;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+    .drop-zone:hover .drop-icon-wrap {
+      transform: scale(1.08) translateY(-4px);
+      box-shadow: 0 12px 40px rgba(99,102,241,0.2);
+    }
+    .drop-zone-text {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .drop-zone-sub {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .drop-zone-sub span {
+      color: var(--accent2);
+      font-weight: 500;
+    }
+
+    /* Processing state */
+    .processing-area {
+      display: none;
+      padding: 32px;
+    }
+    .processing-area.visible { display: block; }
+    .processing-layout {
+      display: grid;
+      grid-template-columns: 1.08fr 0.92fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .processing-preview {
+      position: relative;
+      min-height: 420px;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: linear-gradient(160deg, #12121a, #0b0b10);
+    }
+    .processing-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      filter: blur(18px) saturate(0.85) brightness(0.72);
+      transform: scale(1.08);
+      opacity: 0.88;
+    }
+    .processing-preview::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(7,7,10,0.1), rgba(7,7,10,0.5)),
+        radial-gradient(circle at 50% 50%, rgba(99,102,241,0.2), transparent 46%);
+      pointer-events: none;
+    }
+    .processing-scan {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: -20%;
+      height: 34%;
+      background: linear-gradient(180deg, rgba(167,139,250,0), rgba(167,139,250,0.22), rgba(34,211,238,0));
+      filter: blur(10px);
+      animation: scanSweep 2.2s linear infinite;
+      pointer-events: none;
+      z-index: 2;
+    }
+    @keyframes scanSweep {
+      0% { transform: translateY(0); opacity: 0; }
+      12% { opacity: 1; }
+      100% { transform: translateY(420px); opacity: 0; }
+    }
+    .processing-overlay-copy {
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      bottom: 20px;
+      z-index: 3;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .processing-kicker {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(242,242,248,0.62);
+      margin-bottom: 8px;
+    }
+    .processing-title {
+      font-family: var(--font-display);
+      font-size: clamp(34px, 4vw, 54px);
+      line-height: 0.92;
+      letter-spacing: -0.02em;
+      max-width: 280px;
+    }
+    .processing-chip {
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(242,242,248,0.75);
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(7,7,10,0.48);
+      backdrop-filter: blur(12px);
+      white-space: nowrap;
+    }
+    .processing-status-card {
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.03), transparent 24%),
+        linear-gradient(145deg, #111118, #0b0b10);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      min-height: 420px;
+    }
+    .processing-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .processing-header strong {
+      display: block;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(242,242,248,0.86);
+    }
+    .processing-header span {
+      display: block;
+      margin-top: 4px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .processing-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 9px 12px;
+      border: 1px solid rgba(34,197,94,0.16);
+      background: rgba(34,197,94,0.06);
+      color: var(--green);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .processing-pill::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 12px currentColor;
+      animation: livePulse 1.5s ease-in-out infinite;
+    }
+    .processing-steps {
+      display: grid;
+      gap: 10px;
+    }
+    .processing-step {
+      display: grid;
+      grid-template-columns: 18px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.07);
+      background: rgba(255,255,255,0.02);
+      transition: border-color 0.2s, background 0.2s, opacity 0.2s;
+      opacity: 0.55;
+    }
+    .processing-step.active,
+    .processing-step.done {
+      opacity: 1;
+      border-color: rgba(167,139,250,0.22);
+      background: rgba(167,139,250,0.05);
+    }
+    .processing-step.done {
+      border-color: rgba(34,197,94,0.2);
+      background: rgba(34,197,94,0.05);
+    }
+    .processing-step-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.18);
+      position: relative;
+    }
+    .processing-step.active .processing-step-dot {
+      background: var(--accent2);
+      box-shadow: 0 0 16px rgba(167,139,250,0.7);
+    }
+    .processing-step.done .processing-step-dot {
+      background: var(--green);
+      box-shadow: 0 0 14px rgba(34,197,94,0.55);
+    }
+    .processing-step-label {
+      font-size: 13px;
+      color: rgba(242,242,248,0.88);
+      font-weight: 600;
+    }
+    .processing-step-meta {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .processing-log-box {
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.07);
+      background: rgba(255,255,255,0.02);
+      padding: 14px;
+      min-height: 132px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .processing-log-title {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(242,242,248,0.48);
+    }
+    .processing-log-list {
+      list-style: none;
+      display: grid;
+      gap: 8px;
+      overflow: auto;
+      max-height: 180px;
+      padding-right: 4px;
+    }
+    .processing-log-list li {
+      font-size: 13px;
+      line-height: 1.5;
+      color: rgba(242,242,248,0.78);
+      padding-left: 14px;
+      position: relative;
+    }
+    .processing-log-list li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.65em;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent2);
+      box-shadow: 0 0 10px rgba(167,139,250,0.5);
+    }
+    .processing-progress {
+      height: 10px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .processing-progress-bar {
+      width: 20%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent2), var(--cyan));
+      background-size: 200% 100%;
+      transition: width 0.35s ease;
+      animation: loadingGradient 2.4s linear infinite;
+    }
+    @keyframes loadingGradient {
+      0% { background-position: 0% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .processing-footnote {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .result-area { padding: 32px; display: none; }
+    .result-area.visible { display: block; }
+    .before-after-wrap {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .ba-panel {
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .ba-panel-label {
+      padding: 10px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .ba-panel img { width: 100%; object-fit: contain; max-height: 400px; }
+    .ba-panel.result-panel {
+      background: repeating-conic-gradient(#0f0f16 0% 25%, #131318 0% 50%) 0 0 / 16px 16px;
+      border-color: rgba(167,139,250,0.25);
+    }
+    .ba-panel.result-panel .ba-panel-label {
+      background: rgba(167,139,250,0.06);
+      color: var(--accent2);
+      border-bottom-color: rgba(167,139,250,0.15);
+    }
+    .result-actions { display: flex; gap: 12px; }
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: linear-gradient(135deg, var(--green), #16a34a);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 13px 28px;
+      border-radius: 100px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 0 24px rgba(34,197,94,0.25);
+    }
+    .btn-download:hover { transform: translateY(-1px); box-shadow: 0 4px 40px rgba(34,197,94,0.4); }
+    .btn-reset {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 13px 24px;
+      border-radius: 100px;
+      border: 1px solid var(--border-bright);
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+    .btn-reset:hover { color: var(--text); border-color: rgba(167,139,250,0.3); background: rgba(99,102,241,0.05); }
+
+    .process-btn-wrap { margin-top: 24px; text-align: center; }
+    .btn-process {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--grad);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 17px 48px;
+      border-radius: 100px;
+      letter-spacing: 0.04em;
+      transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 0 40px rgba(99,102,241,0.3), 0 0 80px rgba(167,139,250,0.15);
+      -webkit-text-fill-color: #fff;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-process::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .btn-process:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 60px rgba(99,102,241,0.55), 0 0 100px rgba(167,139,250,0.3);
+    }
+    .btn-process:hover::before { opacity: 1; }
+    .btn-process:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-process.loading { pointer-events: none; }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    .btn-process.loading .spinner { display: block; }
+    .btn-process.loading .btn-text { opacity: 0.7; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-msg {
+      margin-top: 16px;
+      padding: 13px 18px;
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.25);
+      border-radius: 10px;
+      font-size: 13px;
+      color: #ef4444;
+      display: none;
+    }
+    .error-msg.visible { display: block; }
+
+    /* Preview strip */
+    .preview-strip { display: none; padding: 0; gap: 16px; align-items: center; }
+    .preview-strip.visible { display: flex; }
+    .preview-thumb {
+      width: 64px; height: 64px;
+      border-radius: 10px;
+      object-fit: cover;
+      border: 1px solid var(--border-bright);
+    }
+    .preview-info { flex: 1; }
+    .preview-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 300px;
+    }
+    .preview-size { font-size: 12px; color: var(--muted); }
+    .preview-remove {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      border: 1px solid var(--border-bright);
+      background: var(--surface2);
+      color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+    .preview-remove:hover { color: #ef4444; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.06); }
+
+    /* ─── Features ──────────────────────────────────────────────── */
+    #features {
+      padding: 140px 32px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .features-header {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      margin-bottom: 80px;
+      align-items: end;
+    }
+    .features-desc {
+      font-size: 17px;
+      color: var(--muted);
+      line-height: 1.85;
+      font-weight: 300;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+    .feature-card {
+      background: var(--surface);
+      padding: 40px 28px;
+      position: relative;
+      opacity: 0;
+      transform: translateY(40px);
+      transition: background 0.3s, box-shadow 0.3s;
+      overflow: hidden;
+    }
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      transition: opacity 0.3s;
+      opacity: 0;
+    }
+    .feature-card:nth-child(1)::before { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+    .feature-card:nth-child(2)::before { background: linear-gradient(90deg, var(--accent2), var(--pink)); }
+    .feature-card:nth-child(3)::before { background: linear-gradient(90deg, var(--pink), var(--orange)); }
+    .feature-card:nth-child(4)::before { background: linear-gradient(90deg, var(--cyan), var(--accent)); }
+    .feature-card.visible {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.65s ease, transform 0.65s ease, background 0.3s;
+    }
+    .feature-card:hover { background: var(--surface2); }
+    .feature-card:hover::before { opacity: 1; }
+    /* glow on hover */
+    .feature-card:nth-child(1):hover { box-shadow: inset 0 0 60px rgba(99,102,241,0.05); }
+    .feature-card:nth-child(2):hover { box-shadow: inset 0 0 60px rgba(167,139,250,0.05); }
+    .feature-card:nth-child(3):hover { box-shadow: inset 0 0 60px rgba(244,114,182,0.05); }
+    .feature-card:nth-child(4):hover { box-shadow: inset 0 0 60px rgba(34,211,238,0.05); }
+
+    .feature-icon-wrap {
+      width: 56px; height: 56px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      margin-bottom: 24px;
+      background: rgba(99,102,241,0.08);
+      border: 1px solid rgba(99,102,241,0.15);
+    }
+    .feature-card:nth-child(2) .feature-icon-wrap { background: rgba(167,139,250,0.08); border-color: rgba(167,139,250,0.15); }
+    .feature-card:nth-child(3) .feature-icon-wrap { background: rgba(244,114,182,0.08); border-color: rgba(244,114,182,0.15); }
+    .feature-card:nth-child(4) .feature-icon-wrap { background: rgba(34,211,238,0.08); border-color: rgba(34,211,238,0.15); }
+
+    .feature-title {
+      font-family: var(--font-display);
+      font-size: 26px;
+      letter-spacing: 0.04em;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+    .feature-desc { font-size: 14px; color: var(--muted); line-height: 1.75; }
+
+    /* ─── How It Works ──────────────────────────────────────────── */
+    #how-it-works {
+      padding: 140px 32px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    #how-it-works::before {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 700px; height: 300px;
+      background: radial-gradient(ellipse, rgba(167,139,250,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .steps-wrap {
+      max-width: 900px;
+      margin: 72px auto 0;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: center;
+      gap: 0;
+    }
+    .step {
+      opacity: 0;
+      transform: translateY(40px);
+    }
+    .step.visible { opacity: 1; transform: translateY(0); transition: opacity 0.65s ease, transform 0.65s ease; }
+    .step-num {
+      font-family: var(--font-display);
+      font-size: 80px;
+      line-height: 1;
+      background: var(--grad);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      opacity: 0.2;
+      margin-bottom: 16px;
+    }
+    .step-icon-wrap {
+      width: 88px; height: 88px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 1px solid var(--border-bright);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      margin: 0 auto 24px;
+      position: relative;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .step.visible .step-icon-wrap {
+      border-color: rgba(167,139,250,0.3);
+      box-shadow: 0 0 40px rgba(99,102,241,0.1);
+    }
+    .step-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+    .step-desc { font-size: 14px; color: var(--muted); line-height: 1.65; }
+    .step-arrow {
+      font-size: 20px;
+      padding: 0 12px;
+      margin-top: -40px;
+      background: var(--grad);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      opacity: 0.5;
+    }
+
+    /* ─── Pricing ───────────────────────────────────────────────── */
+    #pricing {
+      padding: 140px 32px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .pricing-header { text-align: center; margin-bottom: 72px; }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .pricing-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 44px 36px;
+      position: relative;
+      opacity: 0;
+      transform: translateY(40px);
+      transition: border-color 0.3s, transform 0.3s, box-shadow 0.3s;
+    }
+    .pricing-card.visible {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.65s ease, transform 0.65s ease, border-color 0.3s, box-shadow 0.3s;
+    }
+    .pricing-card:hover { transform: translateY(-6px); box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+    .pricing-card.featured {
+      background: linear-gradient(135deg, rgba(99,102,241,0.08), var(--surface) 50%);
+      border: 2px solid transparent;
+      background-clip: padding-box;
+      position: relative;
+    }
+    .pricing-card.featured::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: 26px;
+      background: var(--grad);
+      z-index: -1;
+      opacity: 0.6;
+    }
+    .pricing-card.featured:hover { transform: translateY(-6px); box-shadow: 0 20px 80px rgba(99,102,241,0.25); }
+    .featured-badge {
+      position: absolute;
+      top: -13px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--grad);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 5px 18px;
+      border-radius: 100px;
+      white-space: nowrap;
+      -webkit-text-fill-color: #fff;
+    }
+    .plan-name {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .plan-price {
+      font-family: var(--font-display);
+      font-size: 72px;
+      line-height: 1;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .plan-price sup { font-family: var(--font-body); font-size: 26px; vertical-align: super; }
+    .pricing-card.featured .plan-price {
+      background: var(--grad);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .plan-period { font-size: 13px; color: var(--muted); margin-bottom: 36px; }
+    .plan-features-list { list-style: none; margin-bottom: 40px; }
+    .plan-features-list li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--muted);
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .plan-features-list li:last-child { border-bottom: none; }
+    .plan-features-list li .check { color: var(--green); font-size: 13px; }
+    .btn-plan {
+      display: block;
+      width: 100%;
+      padding: 15px;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-align: center;
+      transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-plan-outline {
+      border: 1px solid var(--border-bright);
+      color: var(--muted);
+    }
+    .btn-plan-outline:hover { border-color: rgba(167,139,250,0.4); color: var(--text); background: rgba(99,102,241,0.05); }
+    .btn-plan-filled {
+      background: var(--grad);
+      color: #fff;
+      -webkit-text-fill-color: #fff;
+      box-shadow: 0 0 30px rgba(99,102,241,0.3);
+    }
+    .btn-plan-filled:hover { transform: translateY(-2px); box-shadow: 0 4px 50px rgba(99,102,241,0.5); }
+
+    /* ─── Final CTA ─────────────────────────────────────────────── */
+    #final-cta {
+      padding: 180px 32px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    #final-cta::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(167,139,250,0.12) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 30%, transparent 100%);
+      -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 30%, transparent 100%);
+    }
+    .cta-glow {
+      position: absolute;
+      width: 1000px; height: 500px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(99,102,241,0.12) 0%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .cta-title {
+      font-family: var(--font-display);
+      font-size: clamp(72px, 11vw, 150px);
+      line-height: 0.92;
+      letter-spacing: 0.02em;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 32px;
+    }
+    .cta-sub {
+      font-size: 18px;
+      color: var(--muted);
+      max-width: 480px;
+      margin: 0 auto 56px;
+      line-height: 1.75;
+      font-weight: 300;
+      position: relative;
+      z-index: 1;
+    }
+    .cta-actions { position: relative; z-index: 1; display: flex; gap: 16px; justify-content: center; align-items: center; }
+
+    /* ─── Footer ────────────────────────────────────────────────── */
+    footer {
+      padding: 48px 32px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-logo {
+      font-family: var(--font-display);
+      font-size: 22px;
+      letter-spacing: 0.1em;
+      background: var(--grad);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      opacity: 0.5;
+    }
+    .footer-copy { font-size: 13px; color: var(--muted); }
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a { font-size: 13px; color: var(--muted); transition: color 0.2s; }
+    .footer-links a:hover { color: var(--text); }
+
+    /* ─── Fade up ────────────────────────────────────────────────── */
+    .fade-up { opacity: 0; transform: translateY(48px); }
+    .fade-up.visible { opacity: 1; transform: translateY(0); transition: opacity 0.75s ease, transform 0.75s ease; }
+
+    /* ─── Responsive ─────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .ba-slider-section { max-width: 100%; margin-top: 48px; padding: 0 16px; }
+      .ba-slider-wrap { border-radius: 18px; }
+      .ba-slider-knob { width: 40px; height: 40px; }
+      .ba-slider-knob svg { width: 18px; height: 18px; }
+      .hero-actions { flex-wrap: wrap; justify-content: center; }
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 400px; margin: 0 auto; }
+      .features-header { grid-template-columns: 1fr; }
+      .steps-wrap { grid-template-columns: 1fr; }
+      .step-arrow { display: none; }
+      .before-after-wrap { grid-template-columns: 1fr; }
+      footer { flex-direction: column; gap: 24px; text-align: center; }
+      .nav-links { display: none; }
+    }
+    @media (max-width: 600px) {
+      #hero { padding-top: 110px; }
+      .hero-title { font-size: clamp(48px, 15vw, 80px); }
+      .ba-slider-section { margin-top: 36px; padding: 0 12px; }
+      .ba-slider-wrap { border-radius: 14px; }
+      .ba-label { font-size: 8px; padding: 5px 10px; bottom: 10px; }
+      .hero-proof { flex-direction: column; align-items: center; gap: 10px; }
+      .processing-layout { grid-template-columns: 1fr; }
+      .processing-preview,
+      .processing-status-card { min-height: auto; }
+      .processing-preview { min-height: 320px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .api-config-bar { flex-wrap: wrap; }
+      .env-hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="cursor-glow"></div>
+
+  <!-- ── Navigation ──────────────────────────────────────────────── -->
+  <nav id="main-nav">
+    <div class="nav-logo">CUT.OUT</div>
+    <div class="nav-links">
+      <a href="#live-demo">Demo</a>
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How It Works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#live-demo" class="nav-cta">Try Free</a>
+    </div>
+  </nav>
+
+  <!-- ── Hero ────────────────────────────────────────────────────── -->
+  <section id="hero">
+    <div class="parallax-bg" id="parallax-bg">
+      <div class="blob blob-1" id="blob1"></div>
+      <div class="blob blob-2" id="blob2"></div>
+      <div class="blob blob-3" id="blob3"></div>
+      <div class="blob blob-4" id="blob4"></div>
+    </div>
+
+    <div class="hero-center">
+      <div class="hero-eyebrow" id="hero-eyebrow">AI-POWERED &middot; INSTANT RESULTS</div>
+
+      <h1 class="hero-title" aria-label="Remove Background" id="hero-title-el">
+        <span class="hero-title-line" id="htl1"></span>
+        <span class="hero-title-line" id="htl2"></span>
+      </h1>
+
+      <p class="hero-subtitle" id="hero-subtitle">
+        Remove any background in seconds. No design skills needed&nbsp;&mdash; just upload and go. Your result comes with a <span class="checker-swatch"></span>&nbsp;transparent PNG, ready to use.
+      </p>
+
+      <div class="hero-actions" id="hero-actions">
+        <a href="#live-demo" class="btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload an image &mdash; it's free
+        </a>
+        <a href="#how-it-works" class="btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Watch demo
+        </a>
+      </div>
+
+      <div class="hero-proof" id="hero-proof">
+        <div class="hero-proof-item">No credit card</div>
+        <div class="hero-proof-item">Results in 3 sec</div>
+        <div class="hero-proof-item">500K+ users</div>
+      </div>
+    </div>
+
+    <div class="ba-slider-section fade-up" id="heroSlider">
+      <div class="ba-slider-wrap" id="baSlider">
+        <img src="input.png" alt="Before — original photo" draggable="false" />
+        <div class="ba-img-after" id="baAfter">
+          <img src="output.png" alt="After — background removed" draggable="false" />
+        </div>
+        <div class="ba-slider-handle" id="baHandle">
+          <div class="ba-slider-knob">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 3 12 9 6"/><polyline points="15 6 21 12 15 18"/></svg>
+          </div>
+        </div>
+        <span class="ba-label ba-label-before">Before</span>
+        <span class="ba-label ba-label-after">After</span>
+      </div>
+    </div>
+
+    <div class="hero-scroll-hint">
+      <div class="scroll-line"></div>
+      SCROLL
+    </div>
+  </section>
+
+  <!-- ── Marquee ──────────────────────────────────────────────────── -->
+  <div class="marquee-section">
+    <div class="marquee-track">
+      <span class="marquee-item"><span class="marquee-dot"></span>E-Commerce</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Product Photography</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Portrait Retouching</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Real Estate</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Social Media</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Fashion &amp; Apparel</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Marketing Assets</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Auto &amp; Vehicles</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>E-Commerce</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Product Photography</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Portrait Retouching</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Real Estate</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Social Media</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Fashion &amp; Apparel</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Marketing Assets</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Auto &amp; Vehicles</span>
+    </div>
+  </div>
+
+  <!-- ── Demo Strip (removed — hero slider replaces this) ── -->
+
+  <!-- ── Live Demo ────────────────────────────────────────────────── -->
+  <section id="live-demo">
+    <div class="live-demo-header fade-up">
+      <span class="tag">Live API Demo</span>
+      <h2 class="section-title" style="text-align:left; margin-top: 20px;">TRY IT<br><span class="grad-text">RIGHT NOW</span></h2>
+      <p style="color: var(--muted); font-size: 16px; margin-top: 20px; font-weight: 300; max-width: 500px; line-height: 1.8;">
+        Enter your fal.ai API key, drop an image, and get a clean cutout instantly. Your key is stored only in this browser.
+      </p>
+    </div>
+
+    <div class="demo-box-wrap fade-up">
+      <div class="demo-box">
+
+        <!-- API Key Config Bar -->
+        <div class="api-config-bar">
+          <div class="api-status-dot" id="apiStatusDot"></div>
+          <label for="apiKeyInput">FAL API KEY</label>
+          <div class="api-key-input-wrap">
+            <input
+              type="password"
+              id="apiKeyInput"
+              placeholder="Paste full key, e.g. fal_... — stored in localStorage only"
+              autocomplete="off"
+              spellcheck="false"
+              style="padding-left: 16px;"
+            />
+          </div>
+          <div class="api-key-actions">
+            <button class="btn-icon" id="toggleKeyVisibility" title="Toggle visibility">
+              <svg id="eyeIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button class="btn-icon" id="clearKey" title="Clear key">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="env-hint">
+            or set <code>FAL_KEY</code> in <code>.env</code>
+          </div>
+        </div>
+
+        <!-- Upload Zone -->
+        <div class="upload-area" id="uploadArea">
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" />
+            <div class="drop-icon-wrap">🖼️</div>
+            <div class="drop-zone-text">Drop your image here</div>
+            <div class="drop-zone-sub">or <span>click to browse</span> — JPEG, PNG, WEBP up to 10MB</div>
+          </div>
+          <div class="preview-strip" id="previewStrip" style="margin-top:20px;">
+            <img class="preview-thumb" id="previewThumb" src="" alt="" />
+            <div class="preview-info">
+              <div class="preview-name" id="previewName"></div>
+              <div class="preview-size" id="previewSize"></div>
+            </div>
+            <button class="preview-remove" id="previewRemove">✕</button>
+          </div>
+          <div class="process-btn-wrap" id="processBtnWrap" style="display:none;">
+            <button class="btn-process" id="processBtn">
+              <div class="spinner"></div>
+              <span class="btn-text">Remove Background</span>
+            </button>
+            <div class="error-msg" id="errorMsg"></div>
+          </div>
+        </div>
+
+        <!-- Processing Area -->
+        <div class="processing-area" id="processingArea">
+          <div class="processing-layout">
+            <div class="processing-preview">
+              <img id="processingPreviewImage" src="" alt="Processing preview" />
+              <div class="processing-scan"></div>
+              <div class="processing-overlay-copy">
+                <div>
+                  <div class="processing-kicker">Generating transparent cutout</div>
+                  <div class="processing-title"><span class="grad-text">Removing</span><br>the background</div>
+                </div>
+                <div class="processing-chip" id="processingStatusLabel">Uploading image</div>
+              </div>
+            </div>
+
+            <div class="processing-status-card">
+              <div class="processing-header">
+                <div>
+                  <strong>Live Queue Status</strong>
+                  <span id="processingSubstatus">Waiting to start</span>
+                </div>
+                <div class="processing-pill" id="processingPill">Live</div>
+              </div>
+
+              <div class="processing-steps" id="processingSteps">
+                <div class="processing-step active" data-step="upload">
+                  <div class="processing-step-dot"></div>
+                  <div class="processing-step-label">Uploading image to fal storage</div>
+                  <div class="processing-step-meta">step 1</div>
+                </div>
+                <div class="processing-step" data-step="queue">
+                  <div class="processing-step-dot"></div>
+                  <div class="processing-step-label">Queued for model execution</div>
+                  <div class="processing-step-meta">step 2</div>
+                </div>
+                <div class="processing-step" data-step="remove">
+                  <div class="processing-step-dot"></div>
+                  <div class="processing-step-label">Removing background edges</div>
+                  <div class="processing-step-meta">step 3</div>
+                </div>
+                <div class="processing-step" data-step="finalize">
+                  <div class="processing-step-dot"></div>
+                  <div class="processing-step-label">Finalizing transparent output</div>
+                  <div class="processing-step-meta">step 4</div>
+                </div>
+              </div>
+
+              <div class="processing-log-box">
+                <div class="processing-log-title">Streaming Activity</div>
+                <ul class="processing-log-list" id="processingLogList">
+                  <li>Preparing upload...</li>
+                </ul>
+              </div>
+
+              <div class="processing-progress">
+                <div class="processing-progress-bar" id="processingProgressBar"></div>
+              </div>
+              <div class="processing-footnote">
+                Progressive image streaming is model-dependent, so this screen streams real queue and execution updates while your final PNG is being generated.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Result Area -->
+        <div class="result-area" id="resultArea">
+          <div class="before-after-wrap">
+            <div class="ba-panel">
+              <div class="ba-panel-label">BEFORE</div>
+              <img id="resultBefore" src="" alt="Original" />
+            </div>
+            <div class="ba-panel result-panel">
+              <div class="ba-panel-label">AFTER — BG REMOVED</div>
+              <img id="resultAfter" src="" alt="Background removed" />
+            </div>
+          </div>
+          <div class="result-actions">
+            <a id="downloadBtn" href="#" download="cutout.png" class="btn-download">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download PNG
+            </a>
+            <button class="btn-reset" id="resetBtn">↩ Try Another Image</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Features ─────────────────────────────────────────────────── -->
+  <section id="features">
+    <div class="features-header">
+      <div>
+        <span class="tag">Why Cutout</span>
+        <h2 class="section-title" style="margin-top: 20px;">BUILT FOR<br><span class="grad-text">SPEED</span></h2>
+      </div>
+      <p class="features-desc">
+        Every pixel matters. Cutout uses Pixelcut's state-of-the-art AI model via fal.ai infrastructure to deliver edge-perfect results at enterprise scale — in milliseconds, not minutes.
+      </p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon-wrap">⚡</div>
+        <div class="feature-title">INSTANT</div>
+        <div class="feature-desc">Results in under 2 seconds. Process thousands of images with our batch API — no queues, no delays.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon-wrap">🎯</div>
+        <div class="feature-title">ULTRA-HD</div>
+        <div class="feature-desc">Preserves fine details like hair, fur, and transparent objects. Full resolution output, always.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon-wrap">🤖</div>
+        <div class="feature-title">AI POWERED</div>
+        <div class="feature-desc">Powered by Pixelcut's neural network, trained on millions of product and portrait images.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon-wrap">🔌</div>
+        <div class="feature-title">API FIRST</div>
+        <div class="feature-desc">Simple REST API. Integrates into any stack in minutes. fal.ai client available for JS, Python, and more.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── How It Works ─────────────────────────────────────────────── -->
+  <section id="how-it-works">
+    <div class="container">
+      <span class="tag">Process</span>
+      <h2 class="section-title" style="margin-top: 20px;">THREE STEPS.<br><span class="grad-text-rev">ZERO EFFORT.</span></h2>
+      <div class="steps-wrap">
+        <div class="step">
+          <div class="step-num">01</div>
+          <div class="step-icon-wrap">📤</div>
+          <div class="step-title">Upload Image</div>
+          <div class="step-desc">Drop a JPEG or PNG. We handle upload to fal.ai storage automatically.</div>
+        </div>
+        <div class="step-arrow">→</div>
+        <div class="step">
+          <div class="step-num">02</div>
+          <div class="step-icon-wrap">🧠</div>
+          <div class="step-title">AI Processes</div>
+          <div class="step-desc">Pixelcut's model detects and removes the background with pixel-level precision.</div>
+        </div>
+        <div class="step-arrow">→</div>
+        <div class="step">
+          <div class="step-num">03</div>
+          <div class="step-icon-wrap">✅</div>
+          <div class="step-title">Download Cutout</div>
+          <div class="step-desc">Get a transparent PNG instantly. Use anywhere — no attribution required.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Pricing ──────────────────────────────────────────────────── -->
+  <section id="pricing">
+    <div class="pricing-header fade-up">
+      <span class="tag">Pricing</span>
+      <h2 class="section-title" style="margin-top: 20px;">SIMPLE.<br><span class="grad-text">TRANSPARENT.</span></h2>
+      <p style="color: var(--muted); font-size: 16px; margin-top: 20px; font-weight: 300;">No hidden fees. Cancel anytime.</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="pricing-card fade-up">
+        <div class="plan-name">Starter</div>
+        <div class="plan-price"><sup>$</sup>0</div>
+        <div class="plan-period">Free forever</div>
+        <ul class="plan-features-list">
+          <li><span class="check">✓</span> 50 images / month</li>
+          <li><span class="check">✓</span> Up to 4K resolution</li>
+          <li><span class="check">✓</span> PNG output</li>
+          <li><span class="check">✓</span> API access</li>
+          <li style="opacity:.3"><span>–</span> Batch processing</li>
+          <li style="opacity:.3"><span>–</span> Priority queue</li>
+        </ul>
+        <a href="#live-demo" class="btn-plan btn-plan-outline">Get Started Free</a>
+      </div>
+      <div class="pricing-card featured fade-up">
+        <div class="featured-badge">Most Popular</div>
+        <div class="plan-name">Pro</div>
+        <div class="plan-price"><sup>$</sup>19</div>
+        <div class="plan-period">per month · billed monthly</div>
+        <ul class="plan-features-list">
+          <li><span class="check">✓</span> 2,000 images / month</li>
+          <li><span class="check">✓</span> Up to 8K resolution</li>
+          <li><span class="check">✓</span> PNG + ZIP output</li>
+          <li><span class="check">✓</span> Full API access</li>
+          <li><span class="check">✓</span> Batch processing</li>
+          <li style="opacity:.3"><span>–</span> Priority queue</li>
+        </ul>
+        <a href="#live-demo" class="btn-plan btn-plan-filled">Start Pro Trial</a>
+      </div>
+      <div class="pricing-card fade-up">
+        <div class="plan-name">Enterprise</div>
+        <div class="plan-price" style="font-size: 44px; padding-top: 14px;">Custom</div>
+        <div class="plan-period">volume pricing</div>
+        <ul class="plan-features-list">
+          <li><span class="check">✓</span> Unlimited images</li>
+          <li><span class="check">✓</span> Any resolution</li>
+          <li><span class="check">✓</span> All output formats</li>
+          <li><span class="check">✓</span> Dedicated API endpoint</li>
+          <li><span class="check">✓</span> Batch processing</li>
+          <li><span class="check">✓</span> Priority queue + SLA</li>
+        </ul>
+        <a href="mailto:hello@cutout.ai" class="btn-plan btn-plan-outline">Contact Sales</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Final CTA ─────────────────────────────────────────────────── -->
+  <section id="final-cta">
+    <div class="cta-glow"></div>
+    <div class="fade-up">
+      <h2 class="cta-title">START<br><span class="grad-text">CUTTING.</span></h2>
+      <p class="cta-sub">Your first 50 images are on us. No credit card required. Integrated in under 5 minutes.</p>
+      <div class="cta-actions">
+        <a href="#live-demo" class="btn-primary" style="font-size:16px; padding: 17px 44px;">
+          Remove a Background Now
+        </a>
+        <a href="https://fal.ai/models/pixelcut/background-removal/api" target="_blank" rel="noopener" class="btn-secondary">
+          View API Docs →
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ───────────────────────────────────────────────────── -->
+  <footer>
+    <div class="footer-logo">CUT.OUT</div>
+    <div class="footer-copy">© 2026 Cutout. Powered by fal.ai &amp; Pixelcut.</div>
+    <div class="footer-links">
+      <a href="https://fal.ai/models/pixelcut/background-removal/api" target="_blank" rel="noopener">API Docs</a>
+      <a href="https://fal.ai" target="_blank" rel="noopener">fal.ai</a>
+      <a href="mailto:hello@cutout.ai">Contact</a>
+    </div>
+  </footer>
+
+  <!-- ── Scripts ──────────────────────────────────────────────────── -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+  <script type="module">
+    import { fal } from "https://esm.sh/@fal-ai/client@1.3.0";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    /* ── Cursor spotlight ─────────────────────────────────────── */
+    const cursorGlow = document.getElementById("cursor-glow");
+    let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+    let currentX = mouseX, currentY = mouseY;
+    document.addEventListener("mousemove", e => { mouseX = e.clientX; mouseY = e.clientY; });
+    function animateCursor() {
+      currentX += (mouseX - currentX) * 0.08;
+      currentY += (mouseY - currentY) * 0.08;
+      cursorGlow.style.left = currentX + "px";
+      cursorGlow.style.top = currentY + "px";
+      requestAnimationFrame(animateCursor);
+    }
+    animateCursor();
+
+    /* ── Per-character hero title build ─────────────────────── */
+    const heroLines = [
+      { id: "htl1", segments: [{ text: "REMOVE", className: "hero-word-plain" }] },
+      { id: "htl2", segments: [{ text: "BACKGROUND", className: "hero-word-grad" }] },
+    ];
+    const allChars = [];
+    heroLines.forEach(line => {
+      const el = document.getElementById(line.id);
+      line.segments.forEach((segment, segmentIndex) => {
+        [...segment.text].forEach(ch => {
+          const span = document.createElement("span");
+          span.className = `hero-char ${segment.className}`;
+          span.textContent = ch;
+          el.appendChild(span);
+          allChars.push(span);
+        });
+        if (segmentIndex < line.segments.length - 1) {
+          const spacer = document.createElement("span");
+          spacer.className = "hero-char space";
+          spacer.innerHTML = "&nbsp;";
+          el.appendChild(spacer);
+          allChars.push(spacer);
+        }
+      });
+    });
+
+    /* ── GSAP Kinetic Hero ──────────────────────────────────── */
+    const heroTl = gsap.timeline({ defaults: { ease: "expo.out" } });
+    heroTl
+      .to("#hero-eyebrow", { opacity: 1, y: 0, duration: 0.7 }, 0.1)
+      .to(allChars, {
+        opacity: 1,
+        y: "0%",
+        rotation: 0,
+        scale: 1,
+        duration: 1.1,
+        stagger: 0.035,
+        ease: "back.out(1.7)"
+      }, 0.3)
+      .to("#hero-subtitle", { opacity: 1, y: 0, duration: 1 }, "-=0.55")
+      .to("#hero-actions", { opacity: 1, y: 0, duration: 0.9 }, "-=0.7")
+      .to("#hero-proof", { opacity: 1, y: 0, duration: 0.8 }, "-=0.6");
+
+    /* ── Parallax ────────────────────────────────────────────── */
+    const blob1 = document.getElementById("blob1");
+    const blob2 = document.getElementById("blob2");
+    const blob3 = document.getElementById("blob3");
+    const blob4 = document.getElementById("blob4");
+    function handleParallax() {
+      const sy = window.scrollY;
+      if (blob1) blob1.style.transform = `translateY(${sy * 0.18}px)`;
+      if (blob2) blob2.style.transform = `translateY(${sy * 0.12}px)`;
+      if (blob3) blob3.style.transform = `translateY(${sy * -0.08}px)`;
+      if (blob4) blob4.style.transform = `translateY(${sy * 0.14}px)`;
+      /* demo-strip cards removed — hero slider replaces them */
+    }
+    window.addEventListener("scroll", handleParallax, { passive: true });
+    handleParallax();
+
+    /* ── Before / After Slider ─────────────────────────────── */
+    (function() {
+      const slider = document.getElementById("baSlider");
+      const afterEl = document.getElementById("baAfter");
+      const handle = document.getElementById("baHandle");
+      const labelBefore = slider.querySelector(".ba-label-before");
+      const labelAfter = slider.querySelector(".ba-label-after");
+      if (!slider) return;
+
+      let dragging = false;
+
+      function syncSize() {
+        afterEl.style.setProperty("--ba-full-w", slider.offsetWidth + "px");
+      }
+      syncSize();
+      window.addEventListener("resize", syncSize);
+
+      function setPosition(x) {
+        const rect = slider.getBoundingClientRect();
+        let pct = ((x - rect.left) / rect.width) * 100;
+        pct = Math.max(2, Math.min(98, pct));
+        afterEl.style.width = pct + "%";
+        handle.style.left = pct + "%";
+      }
+
+      slider.addEventListener("pointerdown", (e) => {
+        dragging = true;
+        slider.setPointerCapture(e.pointerId);
+        setPosition(e.clientX);
+      });
+      slider.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        setPosition(e.clientX);
+      });
+      slider.addEventListener("pointerup", () => { dragging = false; });
+      slider.addEventListener("pointercancel", () => { dragging = false; });
+
+      gsap.to("#heroSlider", {
+        opacity: 1,
+        y: 0,
+        duration: 1.2,
+        delay: 2.2,
+        ease: "power3.out"
+      });
+    })();
+
+    /* ── Nav scroll ──────────────────────────────────────────── */
+    const nav = document.getElementById("main-nav");
+    window.addEventListener("scroll", () => {
+      nav.classList.toggle("scrolled", window.scrollY > 40);
+    }, { passive: true });
+
+    /* ── Scroll-in animations ────────────────────────────────── */
+    const fadeObs = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("visible"); fadeObs.unobserve(e.target); } });
+    }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+    document.querySelectorAll(".fade-up").forEach(el => fadeObs.observe(el));
+
+    const staggerObs = (cls, delay) => {
+      const obs = new IntersectionObserver(entries => {
+        entries.forEach((e, i) => {
+          if (e.isIntersecting) { setTimeout(() => e.target.classList.add("visible"), i * delay); obs.unobserve(e.target); }
+        });
+      }, { threshold: 0.08 });
+      document.querySelectorAll(cls).forEach(c => obs.observe(c));
+    };
+    staggerObs(".feature-card", 90);
+    staggerObs(".step", 160);
+    staggerObs(".pricing-card", 110);
+
+    /* ── GSAP scroll kinetic titles ──────────────────────────── */
+    gsap.utils.toArray(".section-title").forEach(el => {
+      gsap.fromTo(el,
+        { opacity: 0, y: 70, skewY: 4 },
+        { opacity: 1, y: 0, skewY: 0, duration: 1.1, ease: "expo.out",
+          scrollTrigger: { trigger: el, start: "top 88%", toggleActions: "play none none none" }
+        }
+      );
+    });
+
+    /* ── 3D tilt on cards ────────────────────────────────────── */
+    function addTilt(selector) {
+      document.querySelectorAll(selector).forEach(card => {
+        card.addEventListener("mousemove", e => {
+          const rect = card.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          const dx = (e.clientX - cx) / rect.width;
+          const dy = (e.clientY - cy) / rect.height;
+          card.style.transform = `perspective(800px) rotateY(${dx * 8}deg) rotateX(${-dy * 8}deg) translateY(-6px)`;
+        });
+        card.addEventListener("mouseleave", () => {
+          card.style.transform = "";
+        });
+      });
+    }
+    addTilt(".pricing-card");
+    addTilt(".feature-card");
+
+    /* ── API Key Management ──────────────────────────────────── */
+    const apiKeyInput  = document.getElementById("apiKeyInput");
+    const apiStatusDot = document.getElementById("apiStatusDot");
+    const toggleKeyBtn = document.getElementById("toggleKeyVisibility");
+    const clearKeyBtn  = document.getElementById("clearKey");
+    const STORAGE_KEY  = "cutout_fal_key";
+
+    const savedKey = localStorage.getItem(STORAGE_KEY) || "";
+    if (savedKey) { apiKeyInput.value = savedKey; updateKeyStatus(savedKey); }
+
+    function updateKeyStatus(val) {
+      apiStatusDot.classList.toggle("active", val.trim().length > 10);
+    }
+    apiKeyInput.addEventListener("input", () => {
+      const val = apiKeyInput.value.trim();
+      val ? localStorage.setItem(STORAGE_KEY, val) : localStorage.removeItem(STORAGE_KEY);
+      updateKeyStatus(val);
+    });
+    toggleKeyBtn.addEventListener("click", () => {
+      const pw = apiKeyInput.type === "password";
+      apiKeyInput.type = pw ? "text" : "password";
+      toggleKeyBtn.querySelector("svg").style.opacity = pw ? "0.4" : "1";
+    });
+    clearKeyBtn.addEventListener("click", () => {
+      apiKeyInput.value = "";
+      localStorage.removeItem(STORAGE_KEY);
+      updateKeyStatus("");
+    });
+
+    /* ── File Upload ─────────────────────────────────────────── */
+    const dropZone       = document.getElementById("dropZone");
+    const fileInput      = document.getElementById("fileInput");
+    const previewStrip   = document.getElementById("previewStrip");
+    const previewThumb   = document.getElementById("previewThumb");
+    const previewName    = document.getElementById("previewName");
+    const previewSize    = document.getElementById("previewSize");
+    const previewRemove  = document.getElementById("previewRemove");
+    const processBtnWrap = document.getElementById("processBtnWrap");
+    const processBtn     = document.getElementById("processBtn");
+    const errorMsg       = document.getElementById("errorMsg");
+    const processingArea = document.getElementById("processingArea");
+    const processingPreviewImage = document.getElementById("processingPreviewImage");
+    const processingStatusLabel = document.getElementById("processingStatusLabel");
+    const processingSubstatus = document.getElementById("processingSubstatus");
+    const processingLogList = document.getElementById("processingLogList");
+    const processingProgressBar = document.getElementById("processingProgressBar");
+    const resultArea     = document.getElementById("resultArea");
+    const resultBefore   = document.getElementById("resultBefore");
+    const resultAfter    = document.getElementById("resultAfter");
+    const downloadBtn    = document.getElementById("downloadBtn");
+    const resetBtn       = document.getElementById("resetBtn");
+
+    let currentFile = null, currentObjectUrl = null;
+
+    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+    dropZone.addEventListener("drop", e => {
+      e.preventDefault(); dropZone.classList.remove("drag-over");
+      const f = e.dataTransfer.files[0]; if (f) handleFile(f);
+    });
+    fileInput.addEventListener("change", e => { const f = e.target.files[0]; if (f) handleFile(f); });
+
+    function handleFile(file) {
+      if (!file.type.startsWith("image/")) { showError("Please upload an image file (JPEG, PNG, or WEBP)."); return; }
+      if (file.size > 10 * 1024 * 1024) { showError("File is too large. Maximum size is 10MB."); return; }
+      currentFile = file;
+      if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+      currentObjectUrl = URL.createObjectURL(file);
+      previewThumb.src = currentObjectUrl;
+      previewName.textContent = file.name;
+      previewSize.textContent = formatBytes(file.size);
+      dropZone.style.display = "none";
+      previewStrip.classList.add("visible");
+      processBtnWrap.style.display = "block";
+      hideError();
+    }
+
+    previewRemove.addEventListener("click", resetUpload);
+    function resetUpload() {
+      currentFile = null;
+      if (currentObjectUrl) { URL.revokeObjectURL(currentObjectUrl); currentObjectUrl = null; }
+      dropZone.style.display = "";
+      previewStrip.classList.remove("visible");
+      processBtnWrap.style.display = "none";
+      processingArea.classList.remove("visible");
+      processingPreviewImage.src = "";
+      fileInput.value = "";
+      hideError();
+    }
+    resetBtn.addEventListener("click", () => {
+      resultArea.classList.remove("visible");
+      processingArea.classList.remove("visible");
+      document.getElementById("uploadArea").style.display = "";
+      resetUpload();
+    });
+
+    function formatBytes(b) {
+      if (b < 1024) return b + " B";
+      if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+      return (b / (1024 * 1024)).toFixed(1) + " MB";
+    }
+    function showError(m) { errorMsg.textContent = m; errorMsg.classList.add("visible"); }
+    function hideError() { errorMsg.classList.remove("visible"); }
+
+    function pushProcessingLog(message) {
+      if (!message) return;
+      const lastItem = processingLogList.lastElementChild;
+      if (lastItem?.dataset.message === message) return;
+      const li = document.createElement("li");
+      li.textContent = message;
+      li.dataset.message = message;
+      processingLogList.appendChild(li);
+      while (processingLogList.children.length > 6) {
+        processingLogList.removeChild(processingLogList.firstElementChild);
+      }
+      processingLogList.scrollTop = processingLogList.scrollHeight;
+    }
+
+    function setProcessingStep(stepKey) {
+      const order = ["upload", "queue", "remove", "finalize"];
+      const activeIndex = Math.max(0, order.indexOf(stepKey));
+      document.querySelectorAll("#processingSteps .processing-step").forEach((el, idx) => {
+        el.classList.toggle("done", idx < activeIndex);
+        el.classList.toggle("active", idx === activeIndex);
+      });
+      processingProgressBar.style.width = `${Math.max(16, ((activeIndex + 1) / order.length) * 100)}%`;
+    }
+
+    function showProcessingScreen() {
+      document.getElementById("uploadArea").style.display = "none";
+      resultArea.classList.remove("visible");
+      processingArea.classList.add("visible");
+      processingPreviewImage.src = currentObjectUrl || "";
+      processingLogList.innerHTML = "";
+      pushProcessingLog("Uploading source image...");
+      processingStatusLabel.textContent = "Uploading image";
+      processingSubstatus.textContent = "Preparing file for storage";
+      setProcessingStep("upload");
+    }
+
+    function updateProcessingFromQueue(update) {
+      const status = update?.status || "IN_PROGRESS";
+      const normalizedStatus = String(status).replace(/_/g, " ").toLowerCase();
+      processingStatusLabel.textContent = normalizedStatus.replace(/\b\w/g, c => c.toUpperCase());
+
+      if (status === "IN_QUEUE") {
+        processingSubstatus.textContent = "Request submitted and waiting in queue";
+        setProcessingStep("queue");
+        pushProcessingLog("Request queued for background removal.");
+      } else if (status === "IN_PROGRESS") {
+        processingSubstatus.textContent = "Model is processing edges and alpha mask";
+        setProcessingStep("remove");
+        if (Array.isArray(update.logs) && update.logs.length) {
+          update.logs.forEach(log => pushProcessingLog(log.message));
+        } else {
+          pushProcessingLog("Model is actively removing the background...");
+        }
+      } else if (status === "COMPLETED") {
+        processingSubstatus.textContent = "Rendering final transparent PNG";
+        setProcessingStep("finalize");
+        pushProcessingLog("Final output ready.");
+      }
+    }
+
+    /* ── Process via fal.ai ──────────────────────────────────── */
+    processBtn.addEventListener("click", async () => {
+      if (!currentFile) return;
+      const apiKey = (apiKeyInput.value || localStorage.getItem(STORAGE_KEY) || "").trim();
+      if (!apiKey) { showError("Please enter your fal.ai API key above."); return; }
+
+      setLoading(true); hideError();
+      try {
+        showProcessingScreen();
+        fal.config({ credentials: apiKey });
+        const uploadedUrl = await fal.storage.upload(currentFile);
+        setProcessingStep("queue");
+        processingStatusLabel.textContent = "Queued";
+        processingSubstatus.textContent = "Uploaded successfully, waiting for worker";
+        pushProcessingLog("Upload complete. Image sent to inference queue.");
+        const result = await fal.subscribe("pixelcut/background-removal", {
+          input: { image_url: uploadedUrl, output_format: "rgba", sync_mode: true },
+          logs: true,
+          onQueueUpdate: update => {
+            if (update.status === "IN_PROGRESS") processBtn.querySelector(".btn-text").textContent = "Processing…";
+            updateProcessingFromQueue(update);
+          }
+        });
+        const outputUrl = result.data?.image?.url;
+        if (!outputUrl) throw new Error("No output image returned from API.");
+        setProcessingStep("finalize");
+        processingStatusLabel.textContent = "Finalizing";
+        processingSubstatus.textContent = "Applying result to the preview panels";
+        pushProcessingLog("Transparent output received from fal.");
+        resultBefore.src = currentObjectUrl;
+        resultAfter.src = outputUrl;
+        downloadBtn.href = outputUrl;
+        processingArea.classList.remove("visible");
+        resultArea.classList.add("visible");
+      } catch (err) {
+        processingArea.classList.remove("visible");
+        document.getElementById("uploadArea").style.display = "";
+        console.error("[cutout] API error:", err);
+        const msg = err?.message || err?.body?.detail || String(err);
+        if (msg.includes("401") || msg.includes("Unauthorized") || msg.includes("invalid_api_key") || msg.includes("credentials"))
+          showError("Invalid API key — double-check your fal.ai key and try again.");
+        else if (msg.includes("403"))
+          showError("Access denied (403). Your key may not have permission for this model.");
+        else if (msg.includes("network") || msg.includes("Failed to fetch") || msg.includes("NetworkError"))
+          showError("Network error — check your connection. Note: this page must be served over HTTP (not opened as a local file) for API calls to work.");
+        else
+          showError("API Error: " + msg);
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    function setLoading(l) {
+      processBtn.disabled = l;
+      processBtn.classList.toggle("loading", l);
+      if (!l) processBtn.querySelector(".btn-text").textContent = "Remove Background";
+    }
+
+  </script>
+</body>
+</html>
